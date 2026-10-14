@@ -8,10 +8,7 @@ import ApplicationServices
 let triggerKeyCodes: Set<Int64> = [96, 176]  // same physical key as F5 (microphone / Dictation)
 let spaceKeyCode: Int64 = 49
 let backspaceKeyCode: CGKeyCode = 51
-let chunkSoftSeconds: TimeInterval = 20   // split at the next pause after this long
-let chunkHardSeconds: TimeInterval = 45   // split even without a pause
-let pauseLevel: Float = -42               // dB below which the input counts as a pause
-let silenceLevel: Float = -48             // chunks that never exceed this are not transcribed
+
 let holdThreshold: TimeInterval = 0.3
 let minIntervalAfterKeyUp: TimeInterval = 0.15
 let configCandidates = ["~/.config/michold/config.json", "~/.config/qd/voice.json"].map { NSString(string: $0).expandingTildeInPath }
@@ -33,6 +30,10 @@ struct Config: Decodable {
     let language: String?
     let triggers: [String]?       // "micKey" / "space" (both by default)
     let spaceHoldSeconds: Double? // hold time for the space bar (default 0.5 s)
+    let chunkSoftSeconds: Double? // split at the next pause after this long (default 20 s)
+    let chunkHardSeconds: Double? // split even without a pause (default 45 s)
+    let pauseLevelDb: Float?      // input below this level counts as a pause (default -42 dB)
+    let silenceLevelDb: Float?    // pieces that never exceed this level are not transcribed (default -48 dB)
 }
 
 // whisper-server starts when recording starts and stops after transcription (it is not kept running).
@@ -240,6 +241,10 @@ final class MicHold {
     private let spaceEnabled: Bool
     private let spaceHoldSeconds: TimeInterval
     private let language: String?
+    private let chunkSoft: TimeInterval
+    private let chunkHard: TimeInterval
+    private let pauseLevel: Float
+    private let silenceLevel: Float
     private var chunkTimer: Timer?
     private var pending = 0
     private var quietSince: Date?
@@ -254,6 +259,10 @@ final class MicHold {
         spaceEnabled = triggers.contains("space")
         spaceHoldSeconds = cfg.spaceHoldSeconds ?? 0.5
         language = cfg.language
+        chunkSoft = cfg.chunkSoftSeconds ?? 20
+        chunkHard = cfg.chunkHardSeconds ?? 45
+        pauseLevel = cfg.pauseLevelDb ?? -42
+        silenceLevel = cfg.silenceLevelDb ?? -48
     }
 
     func start() {
@@ -357,7 +366,7 @@ final class MicHold {
         if level < pauseLevel { quietSince = quietSince ?? Date() } else { quietSince = nil }
         let elapsed = recorder.elapsed
         let paused = quietSince.map { Date().timeIntervalSince($0) >= 0.5 } ?? false
-        guard elapsed >= chunkHardSeconds || (elapsed >= chunkSoftSeconds && paused) else { return }
+        guard elapsed >= chunkHard || (elapsed >= chunkSoft && paused) else { return }
         let wav = recorder.stop()
         let silent = chunkPeak < silenceLevel
         chunkPeak = -160

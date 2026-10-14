@@ -2,7 +2,7 @@
 
 <img src="icon.png" width="128" alt="MicHold">
 
-A small macOS app for hold-to-dictate. Hold the microphone key (the Dictation key, same physical key as F5) or the space bar: it records while you hold, transcribes with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) when you release, and pastes the text at the cursor. A short press of the microphone key opens Siri. It has no window and no menu bar icon.
+A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone key (the Dictation key, same physical key as F5) or the space bar: it records while you hold, transcribes with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) when you release, and pastes the text at the cursor. A short press of the microphone key opens Siri. It has no window and no menu bar icon.
 
 ## Behavior
 
@@ -51,11 +51,22 @@ A small macOS app for hold-to-dictate. Hold the microphone key (the Dictation ke
   "model": "/Users/you/.local/share/whisper/ggml-large-v3-turbo-q5_0.bin",
   "language": "ja",
   "triggers": ["micKey", "space"],
-  "spaceHoldSeconds": 0.5
+  "spaceHoldSeconds": 0.5,
+  "chunkSoftSeconds": 20,
+  "chunkHardSeconds": 45,
+  "pauseLevelDb": -42,
+  "silenceLevelDb": -48
 }
 ```
 
-`triggers` and `spaceHoldSeconds` are optional and default to the values above. Use `"triggers": ["micKey"]` to disable the space bar trigger.
+All keys except `serverBin` and `model` are optional and default to the values above. The values are read once at startup, so they add no runtime cost. Use `"triggers": ["micKey"]` to disable the space bar trigger.
+
+| Key | Meaning |
+|---|---|
+| `chunkSoftSeconds` | A long recording is split at the first pause after this many seconds |
+| `chunkHardSeconds` | A long recording is split after this many seconds even without a pause |
+| `pauseLevelDb` | Input quieter than this (dB) counts as a pause. Raise it (for example -38) in a noisy room |
+| `silenceLevelDb` | A piece that never gets louder than this (dB) is skipped instead of transcribed |
 
 ## Build and run
 
