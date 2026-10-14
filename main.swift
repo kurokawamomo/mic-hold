@@ -8,6 +8,10 @@ import ApplicationServices
 let triggerKeyCodes: Set<Int64> = [96, 176]  // same physical key as F5 (microphone / Dictation)
 let spaceKeyCode: Int64 = 49
 let backspaceKeyCode: CGKeyCode = 51
+let chunkSoftSeconds: TimeInterval = 20   // split at the next pause after this long
+let chunkHardSeconds: TimeInterval = 45   // split even without a pause
+let pauseLevel: Float = -42               // dB below which the input counts as a pause
+let silenceLevel: Float = -48             // chunks that never exceed this are not transcribed
 let holdThreshold: TimeInterval = 0.3
 let minIntervalAfterKeyUp: TimeInterval = 0.15
 let configCandidates = ["~/.config/michold/config.json", "~/.config/qd/voice.json"].map { NSString(string: $0).expandingTildeInPath }
@@ -123,9 +127,20 @@ final class WhisperServer {
 
 final class Recorder {
     private var recorder: AVAudioRecorder?
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("michold.wav")
+    private var index = 0
+    private(set) var url = FileManager.default.temporaryDirectory.appendingPathComponent("michold-0.wav")
+
+    var elapsed: TimeInterval { recorder?.currentTime ?? 0 }
+
+    var level: Float {
+        guard let r = recorder else { return -160 }
+        r.updateMeters()
+        return r.averagePower(forChannel: 0)
+    }
 
     func start() -> Bool {
+        index += 1
+        url = FileManager.default.temporaryDirectory.appendingPathComponent("michold-\(index).wav")
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 16000,
@@ -134,7 +149,12 @@ final class Recorder {
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
         ]
-        guard let r = try? AVAudioRecorder(url: url, settings: settings), r.record() else {
+        guard let r = try? AVAudioRecorder(url: url, settings: settings) else {
+            log("failed to start recording")
+            return false
+        }
+        r.isMeteringEnabled = true
+        guard r.record() else {
             log("failed to start recording")
             return false
         }
@@ -142,10 +162,26 @@ final class Recorder {
         return true
     }
 
-    func stop() {
+    // Stops the current file and returns it.
+    func stop() -> URL {
         recorder?.stop()
         recorder = nil
+        return url
     }
+}
+
+// Whisper returns one line per phrase; joining them keeps pasted text on a single line.
+func flatten(_ text: String, language: String?) -> String {
+    let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    let cjk = ["ja", "zh"].contains(language ?? "ja")
+    let enders = CharacterSet(charactersIn: "。、！？!?.,，")
+    var out = ""
+    for line in lines {
+        if out.isEmpty { out = line; continue }
+        let ended = out.unicodeScalars.last.map { enders.contains($0) } ?? false
+        out += (cjk ? (ended ? "" : "、") : " ") + line
+    }
+    return out
 }
 
 enum Paster {
@@ -203,6 +239,13 @@ final class MicHold {
     private let micKeyEnabled: Bool
     private let spaceEnabled: Bool
     private let spaceHoldSeconds: TimeInterval
+    private let language: String?
+    private var chunkTimer: Timer?
+    private var pending = 0
+    private var quietSince: Date?
+    private var chunkPeak: Float = -160
+    private var needsJoin = false
+    private var pastedAny = false
 
     init(cfg: Config) {
         server = WhisperServer(cfg: cfg)
@@ -210,6 +253,7 @@ final class MicHold {
         micKeyEnabled = triggers.contains("micKey")
         spaceEnabled = triggers.contains("space")
         spaceHoldSeconds = cfg.spaceHoldSeconds ?? 0.5
+        language = cfg.language
     }
 
     func start() {
@@ -297,24 +341,72 @@ final class MicHold {
         server.start()  // load the model while the user is speaking
         guard recorder.start() else { server.stop(); state = .idle; return }
         state = .holding
+        needsJoin = false
+        pastedAny = false
+        quietSince = nil
+        chunkPeak = -160
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.tick() }
         NSSound(named: "Tink")?.play()
     }
 
+    // Long recordings are cut at a pause (or at the hard limit) and each piece is pasted as soon as it is transcribed.
+    private func tick() {
+        guard state == .holding else { return }
+        let level = recorder.level
+        chunkPeak = max(chunkPeak, level)
+        if level < pauseLevel { quietSince = quietSince ?? Date() } else { quietSince = nil }
+        let elapsed = recorder.elapsed
+        let paused = quietSince.map { Date().timeIntervalSince($0) >= 0.5 } ?? false
+        guard elapsed >= chunkHardSeconds || (elapsed >= chunkSoftSeconds && paused) else { return }
+        let wav = recorder.stop()
+        let silent = chunkPeak < silenceLevel
+        chunkPeak = -160
+        quietSince = nil
+        let restarted = recorder.start()
+        enqueue(wav, silent: silent)
+        if !restarted {
+            chunkTimer?.invalidate()
+            chunkTimer = nil
+            state = .transcribing
+        }
+    }
+
     private func endRecording() {
-        recorder.stop()
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+        chunkPeak = max(chunkPeak, recorder.level)
+        let wav = recorder.stop()
         state = .transcribing
         NSSound(named: "Pop")?.play()
-        let wav = recorder.url
-        work.async { [server] in
-            let text = server.transcribe(wav: wav)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            server.stop()
+        enqueue(wav, silent: chunkPeak < silenceLevel)
+    }
+
+    private func enqueue(_ wav: URL, silent: Bool) {
+        pending += 1
+        work.async { [server, language] in
+            let raw = silent ? "" : (server.transcribe(wav: wav) ?? "")
             try? FileManager.default.removeItem(at: wav)
+            let text = flatten(raw, language: language)
             DispatchQueue.main.async {
-                self.state = .idle
-                if text.isEmpty { log("transcription result was empty"); NSSound(named: "Basso")?.play(); return }
-                Paster.paste(text)
+                self.pending -= 1
+                if text.isEmpty {
+                    if self.state == .transcribing && self.pending == 0 && !self.pastedAny { NSSound(named: "Basso")?.play() }
+                } else {
+                    let cjk = ["ja", "zh"].contains(language ?? "ja")
+                    let joiner = self.needsJoin ? (cjk ? "、" : " ") : ""
+                    Paster.paste(joiner + text)
+                    self.pastedAny = true
+                    self.needsJoin = !(text.unicodeScalars.last.map { CharacterSet(charactersIn: "。、！？!?.,，").contains($0) } ?? true)
+                }
+                self.finish()
             }
         }
+    }
+
+    private func finish() {
+        guard state == .transcribing, pending == 0 else { return }
+        server.stop()
+        state = .idle
     }
 }
 

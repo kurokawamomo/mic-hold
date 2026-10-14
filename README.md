@@ -15,6 +15,8 @@ A small macOS app for hold-to-dictate. Hold the microphone key (the Dictation ke
 
 - Transcription stays on your machine. Audio is only sent to whisper-server on `127.0.0.1`.
 - With the space bar, the first space is typed as usual and removed with Backspace once recording starts. Holding space to insert many spaces no longer works. Space pressed together with Shift, Control, Option or Command is passed through unchanged.
+- Whisper returns one line per phrase. The lines are joined into one with "、" (spaces for languages other than ja/zh) so the pasted text stays on a single line, which terminals and chat inputs do not collapse.
+- Long recordings are split at the first pause after 20 s (at 45 s at the latest). Each piece is transcribed and pasted as soon as it is ready, so there is no length limit and you can see the text arrive while you keep holding. Pieces that stay silent are skipped.
 - Pasting goes through the clipboard: it sends Cmd+V and restores the previous clipboard contents after 0.5 s.
 - Log file: `~/Library/Logs/MicHold.log`
 
