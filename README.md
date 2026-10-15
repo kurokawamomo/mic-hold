@@ -8,12 +8,13 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
 
 | Action | Result |
 |---|---|
-| Hold the microphone key for 0.3 s, or the space bar for 0.5 s | Recording starts (Tink sound). whisper-server is launched at this point |
+| Hold the microphone key for 0.3 s, or the space bar for 0.7 s | Recording starts (Tink sound). whisper-server is launched at this point |
 | Release | Recording stops (Pop sound), the audio is transcribed and pasted, and whisper-server is stopped |
 | Short press of the microphone key | Opens Siri |
 | Empty result | Basso sound |
 
 - Transcription stays on your machine. Audio is only sent to whisper-server on `127.0.0.1`.
+- Tap the space bar, release, and press it again within 0.3 s (`spaceDoubleTapSeconds`): the second press is an ordinary space (key repeat works) and never starts recording.
 - With the space bar, the first space is typed as usual and removed with Backspace once recording starts. Holding space to insert many spaces no longer works. Space pressed together with Shift, Control, Option or Command is passed through unchanged.
 - Whisper returns one line per phrase. The lines are joined into one with "、" (spaces for languages other than ja/zh) so the pasted text stays on a single line, which terminals and chat inputs do not collapse.
 - Long recordings are split at the first pause after 20 s (at 45 s at the latest). Each piece is transcribed and pasted as soon as it is ready, so there is no length limit and you can see the text arrive while you keep holding. Pieces that stay silent are skipped.
@@ -51,7 +52,8 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
   "model": "/Users/you/.local/share/whisper/ggml-large-v3-turbo-q5_0.bin",
   "language": "ja",
   "triggers": ["micKey", "space"],
-  "spaceHoldSeconds": 0.5,
+  "spaceHoldSeconds": 0.7,
+  "spaceDoubleTapSeconds": 0.3,
   "chunkSoftSeconds": 20,
   "chunkHardSeconds": 45,
   "pauseLevelDb": -42,

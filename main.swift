@@ -29,7 +29,8 @@ struct Config: Decodable {
     let model: String
     let language: String?
     let triggers: [String]?       // "micKey" / "space" (both by default)
-    let spaceHoldSeconds: Double? // hold time for the space bar (default 0.5 s)
+    let spaceHoldSeconds: Double? // hold time for the space bar (default 0.7 s)
+    let spaceDoubleTapSeconds: Double? // a space pressed again within this time after a tap is a plain space (default 0.3 s)
     let chunkSoftSeconds: Double? // split at the next pause after this long (default 20 s)
     let chunkHardSeconds: Double? // split even without a pause (default 45 s)
     let pauseLevelDb: Float?      // input below this level counts as a pause (default -42 dB)
@@ -240,6 +241,8 @@ final class MicHold {
     private let micKeyEnabled: Bool
     private let spaceEnabled: Bool
     private let spaceHoldSeconds: TimeInterval
+    private let spaceDoubleTap: TimeInterval
+    private var lastSpaceTapAt: Date?
     private let language: String?
     private let chunkSoft: TimeInterval
     private let chunkHard: TimeInterval
@@ -257,7 +260,8 @@ final class MicHold {
         let triggers = cfg.triggers ?? ["micKey", "space"]
         micKeyEnabled = triggers.contains("micKey")
         spaceEnabled = triggers.contains("space")
-        spaceHoldSeconds = cfg.spaceHoldSeconds ?? 0.5
+        spaceHoldSeconds = cfg.spaceHoldSeconds ?? 0.7
+        spaceDoubleTap = cfg.spaceDoubleTapSeconds ?? 0.3
         language = cfg.language
         chunkSoft = cfg.chunkSoftSeconds ?? 20
         chunkHard = cfg.chunkHardSeconds ?? 45
@@ -304,6 +308,10 @@ final class MicHold {
             guard spaceEnabled, event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else { return false }
             if isDown {
                 if repeating { return source == .space && state != .idle }
+                if let tapped = lastSpaceTapAt, Date().timeIntervalSince(tapped) < spaceDoubleTap {
+                    lastSpaceTapAt = nil  // tap then press again: an ordinary space, key repeat included
+                    return false
+                }
                 keyDown(.space, threshold: spaceHoldSeconds)
             } else {
                 keyUp(.space)
@@ -336,6 +344,7 @@ final class MicHold {
         case .pressing:
             holdWork?.cancel()
             state = .idle
+            if from == .space { lastSpaceTapAt = Date() }
             if from == .micKey { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Siri.app")) }
         case .holding:
             endRecording()
