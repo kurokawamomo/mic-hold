@@ -31,6 +31,7 @@ struct Config: Decodable {
     let language: String?
     let triggers: [String]?       // "micKey" / "space" (both by default)
     let spaceHoldSeconds: Double? // hold time for the space bar (default 0.7 s)
+    let spaceCleanup: String?     // what to do with the space typed before the hold: "inputOnly" (default) removes it with Backspace only when a text input has focus; "always" removes it everywhere; "none" keeps it
     let spaceDoubleTapSeconds: Double? // a space pressed again within this time after a tap is a plain space (default 0.3 s)
     let chunkSoftSeconds: Double? // split at the next pause after this long (default 20 s)
     let chunkHardSeconds: Double? // split even without a pause (default 45 s)
@@ -228,6 +229,19 @@ enum Paster {
     }
 }
 
+// The OS tells whether the focused element edits text: it exposes a selected text range (a caret).
+func focusedElementAcceptsText() -> (accepts: Bool, role: String?) {
+    var focused: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+          let element = focused else { return (false, nil) }
+    let ax = element as! AXUIElement
+    var role: CFTypeRef?
+    AXUIElementCopyAttributeValue(ax, kAXRoleAttribute as CFString, &role)
+    var range: CFTypeRef?
+    let hasCaret = AXUIElementCopyAttributeValue(ax, kAXSelectedTextRangeAttribute as CFString, &range) == .success
+    return (hasCaret, role as? String)
+}
+
 final class MicHold {
     enum State { case idle, pressing, holding, transcribing }
     enum Source { case micKey, space }
@@ -245,6 +259,7 @@ final class MicHold {
     private let spaceEnabled: Bool
     private let spaceHoldSeconds: TimeInterval
     private let spaceDoubleTap: TimeInterval
+    private let spaceCleanup: String
     private var lastSpaceTapAt: Date?
     private let language: String?
     private let chunkSoft: TimeInterval
@@ -265,6 +280,7 @@ final class MicHold {
         spaceEnabled = triggers.contains("space")
         spaceHoldSeconds = cfg.spaceHoldSeconds ?? 0.7
         spaceDoubleTap = cfg.spaceDoubleTapSeconds ?? 0.3
+        spaceCleanup = cfg.spaceCleanup ?? "inputOnly"
         language = cfg.language
         chunkSoft = cfg.chunkSoftSeconds ?? 20
         chunkHard = cfg.chunkHardSeconds ?? 45
@@ -319,7 +335,7 @@ final class MicHold {
             } else {
                 keyUp(.space)
             }
-            return false  // the first space is passed through; it is removed with Backspace once recording starts
+            return false  // the first space is passed through; shouldRemoveTypedSpace() decides later whether to remove it
         }
         guard micKeyEnabled, triggerKeyCodes.contains(key) else { return false }
         if isDown {
@@ -356,9 +372,22 @@ final class MicHold {
         }
     }
 
+    // Backspace is injected only where a text field has focus. Elsewhere (Google Meet, Zoom) the typed space
+    // stays so a held space keeps working there.
+    private func shouldRemoveTypedSpace() -> Bool {
+        switch spaceCleanup {
+        case "always": return true
+        case "none": return false
+        default:
+            let (accepts, role) = focusedElementAcceptsText()
+            log("space cleanup: \(accepts ? "remove" : "keep") app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?") role=\(role ?? "none")")
+            return accepts
+        }
+    }
+
     private func beginRecording() {
         guard state == .pressing else { return }
-        if source == .space { Paster.backspace() }  // remove the space typed before the hold
+        if source == .space && shouldRemoveTypedSpace() { Paster.backspace() }  // remove the space typed before the hold
         server.start()  // load the model while the user is speaking
         guard recorder.start() else { server.stop(); state = .idle; return }
         state = .holding

@@ -15,7 +15,7 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
 
 - Transcription stays on your machine. Audio is only sent to whisper-server on `127.0.0.1`.
 - Tap the space bar, release, and press it again within 0.3 s (`spaceDoubleTapSeconds`): the second press is an ordinary space (key repeat works) and never starts recording.
-- With the space bar, the first space is typed as usual and removed with Backspace once recording starts. Holding space to insert many spaces no longer works. Space pressed together with Shift, Control, Option or Command is passed through unchanged.
+- With the space bar, the first space is typed as usual. When recording starts it is removed with Backspace only if the focused element edits text (the OS exposes a caret for it) (`spaceCleanup`: `inputOnly`, the default). Each decision is written to the log with the app and the focused element's role. In apps that use a held space without a text input (for example push-to-talk in Google Meet or Zoom) nothing is injected, so they keep working. `"always"` removes it everywhere and `"none"` never does. If an app does not expose its focused field to the Accessibility API (Chrome often needs accessibility turned on), the space is kept. Holding space to insert many spaces no longer works. Space pressed together with Shift, Control, Option or Command is passed through unchanged.
 - Whisper returns one line per phrase. The lines are joined into one with "、" (spaces for languages other than ja/zh) so the pasted text stays on a single line, which terminals and chat inputs do not collapse.
 - Long recordings are split at the first pause after 20 s (at 45 s at the latest). Each piece is transcribed and pasted as soon as it is ready, so there is no length limit and you can see the text arrive while you keep holding. Pieces that stay silent are skipped.
 - Pasting goes through the clipboard: it sends Cmd+V and restores the previous clipboard contents after 0.5 s.
@@ -57,6 +57,7 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
   "triggers": ["micKey", "space"],
   "spaceHoldSeconds": 0.7,
   "spaceDoubleTapSeconds": 0.3,
+  "spaceCleanup": "inputOnly",
   "chunkSoftSeconds": 20,
   "chunkHardSeconds": 45,
   "pauseLevelDb": -42,
