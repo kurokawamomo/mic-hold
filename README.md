@@ -42,6 +42,8 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
 
    Put it anywhere you like and point to it from the config file below.
 
+3. **A VAD model** (optional, recommended): Whisper tends to hallucinate phrases such as "Thank you for watching" on silence or noise. With a Silero VAD model set as `vadModel`, whisper-server runs voice activity detection and never decodes non-speech audio, so silence yields an empty result. Get `ggml-silero-v5.1.2.bin` from [ggml-org/whisper-vad on Hugging Face](https://huggingface.co/ggml-org/whisper-vad).
+
 ## Configuration
 
 `~/.config/michold/config.json`
@@ -51,6 +53,7 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
   "serverBin": "/path/to/whisper.cpp/build/bin/whisper-server",
   "model": "/Users/you/.local/share/whisper/ggml-large-v3-turbo-q5_0.bin",
   "language": "ja",
+  "vadModel": "/path/to/ggml-silero-v5.1.2.bin",
   "triggers": ["micKey", "space"],
   "spaceHoldSeconds": 0.7,
   "spaceDoubleTapSeconds": 0.3,

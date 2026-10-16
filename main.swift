@@ -27,6 +27,7 @@ func log(_ s: String) {
 struct Config: Decodable {
     let serverBin: String
     let model: String
+    let vadModel: String?         // Silero VAD model; when set, whisper-server drops non-speech audio (no "thank you for watching" on silence)
     let language: String?
     let triggers: [String]?       // "micKey" / "space" (both by default)
     let spaceHoldSeconds: Double? // hold time for the space bar (default 0.7 s)
@@ -50,7 +51,9 @@ final class WhisperServer {
         port = Self.freePort()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: cfg.serverBin)
-        p.arguments = ["-m", cfg.model, "--host", "127.0.0.1", "--port", String(port), "-l", cfg.language ?? "ja"]
+        var args = ["-m", cfg.model, "--host", "127.0.0.1", "--port", String(port), "-l", cfg.language ?? "ja"]
+        if let vad = cfg.vadModel { args += ["--vad", "--vad-model", vad] }
+        p.arguments = args
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         do { try p.run(); proc = p } catch { log("failed to start whisper-server: \(error)") }
