@@ -11,6 +11,8 @@ let backspaceKeyCode: CGKeyCode = 51
 
 let holdThreshold: TimeInterval = 0.3
 let minIntervalAfterKeyUp: TimeInterval = 0.15
+let keyWatchInterval: TimeInterval = 0.05     // how often the physical space bar is polled while it is the trigger
+let keyReleaseConfirm: TimeInterval = 0.2     // a space bar that reads as up this long counts as released
 let configCandidates = ["~/.config/michold/config.json", "~/.config/qd/voice.json"].map { NSString(string: $0).expandingTildeInPath }
 let configPath = configCandidates.first { FileManager.default.fileExists(atPath: $0) } ?? configCandidates[0]
 let logPath = NSString(string: "~/Library/Logs/MicHold.log").expandingTildeInPath
@@ -267,6 +269,8 @@ final class MicHold {
     private let pauseLevel: Float
     private let silenceLevel: Float
     private var chunkTimer: Timer?
+    private var keyWatchTimer: Timer?
+    private var releasedSince: Date?
     private var pending = 0
     private var quietSince: Date?
     private var chunkPeak: Float = -160
@@ -351,13 +355,43 @@ final class MicHold {
         if let last = lastKeyUpAt, Date().timeIntervalSince(last) < minIntervalAfterKeyUp { return }
         source = from
         state = .pressing
+        if from == .space { startKeyWatch() }
         let w = DispatchWorkItem { [weak self] in self?.beginRecording() }
         holdWork = w
         DispatchQueue.main.asyncAfter(deadline: .now() + threshold, execute: w)
     }
 
+    // The key events can be lost (for example while the event tap is disabled by a timeout), so the physical
+    // space bar is polled too. A key-up is inferred when it reads as up for keyReleaseConfirm.
+    private func startKeyWatch() {
+        stopKeyWatch()
+        releasedSince = nil
+        keyWatchTimer = Timer.scheduledTimer(withTimeInterval: keyWatchInterval, repeats: true) { [weak self] _ in self?.watchPhysicalSpace() }
+    }
+
+    private func stopKeyWatch() {
+        keyWatchTimer?.invalidate()
+        keyWatchTimer = nil
+        releasedSince = nil
+    }
+
+    private func watchPhysicalSpace() {
+        guard source == .space, state == .pressing || state == .holding else { stopKeyWatch(); return }
+        if isSpacePhysicallyDown() { releasedSince = nil; return }
+        let since = releasedSince ?? Date()
+        releasedSince = since
+        guard Date().timeIntervalSince(since) >= keyReleaseConfirm else { return }
+        log("space bar read as released without a key-up event (state=\(state))")
+        keyUp(.space)
+    }
+
+    private func isSpacePhysicallyDown() -> Bool {
+        CGEventSource.keyState(.hidSystemState, key: CGKeyCode(spaceKeyCode))
+    }
+
     private func keyUp(_ from: Source) {
         guard from == source else { return }
+        if from == .space { stopKeyWatch() }
         lastKeyUpAt = Date()
         switch state {
         case .pressing:
@@ -387,6 +421,11 @@ final class MicHold {
 
     private func beginRecording() {
         guard state == .pressing else { return }
+        if source == .space && !isSpacePhysicallyDown() {
+            log("space bar is not down at the hold threshold; recording not started")
+            keyUp(.space)
+            return
+        }
         if source == .space && shouldRemoveTypedSpace() { Paster.backspace() }  // remove the space typed before the hold
         server.start()  // load the model while the user is speaking
         guard recorder.start() else { server.stop(); state = .idle; return }
