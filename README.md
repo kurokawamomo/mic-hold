@@ -31,6 +31,7 @@ A SMALL & SUPER LIGHT-WEIGHT macOS app for hold-to-dictate. Hold the microphone 
    cd whisper.cpp
    cmake -B build && cmake --build build --config Release
    # produces build/bin/whisper-server
+   # build it on the Mac that runs it (or for its CPU): MicHold is universal, whisper-server is not
    ```
 
 2. **A model** in ggml format from [ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main). `ggml-large-v3-turbo-q5_0.bin` (about 574 MB) is a good balance of size and accuracy:
@@ -78,7 +79,8 @@ All keys except `serverBin` and `model` are optional and default to the values a
 ## Build and run
 
 ```sh
-./build.sh                    # builds /Applications/MicHold.app, including the icon
+./build.sh                    # builds /Applications/MicHold.app (universal: Apple silicon and Intel), including the icon
+APP=~/Desktop/MicHold.app ./build.sh   # build somewhere else, for example to copy it to another Mac
 open /Applications/MicHold.app
 pkill -x MicHold              # stop it
 ```
