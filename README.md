@@ -85,6 +85,19 @@ open /Applications/MicHold.app
 pkill -x MicHold              # stop it
 ```
 
+## Install on another Mac (Intel too)
+
+`package.sh` makes one zip with everything another Mac needs: the universal app, whisper-server built for that Mac's CPU, the model and VAD model from your config, and `install.sh`. Run it on a Mac where MicHold already works.
+
+```sh
+WHISPER_SRC=/path/to/whisper.cpp ./package.sh             # dist/MicHold-x86_64.zip, for an Intel Mac
+ARCH=arm64 WHISPER_SRC=/path/to/whisper.cpp ./package.sh  # dist/MicHold-arm64.zip, for Apple silicon
+```
+
+On the other Mac (macOS 12 or later), unzip it and run `sh install.sh`. It copies the app to `/Applications`, whisper to `~/MicHold/whisper`, writes `~/.config/michold/config.json`, and clears the quarantine flag so macOS does not block the unsigned app. Then open MicHold and allow the three permissions below. On an Intel Mac whisper runs on the CPU only, so transcription is slower.
+
+MicHold shows no window and no menu bar icon, and it quits silently when the config is missing or broken. If nothing happens, read `~/Library/Logs/MicHold.log`.
+
 The icon is drawn by `make-icon.swift`. To regenerate it:
 
 ```sh
